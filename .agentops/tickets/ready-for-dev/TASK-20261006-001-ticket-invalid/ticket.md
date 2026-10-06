@@ -3,7 +3,7 @@ taskId: TASK-20261006-001-ticket-invalid
 status: ReadyForDev
 activeWorkflowBranchId: null
 lastTransitionBy: HumanOperator
-lastTransitionReason: Demo seed: invalid precondition
+lastTransitionReason: "Demo seed: invalid precondition"
 updatedAt: 2026-10-06T10:00:00Z
 authorizedForDevBy: Demo presenter
 authorizedForDevAt: 2026-10-06T10:00:00Z

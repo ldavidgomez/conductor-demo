@@ -29,6 +29,13 @@ conductor validate workflows/demo/02-changes-requested.yaml
 conductor validate workflows/demo/03-happy-path.yaml
 ```
 
+The production-like happy path uses the pinned canonical workflow:
+
+```powershell
+conductor validate workflows/canonical/implement-task-v0.yaml
+conductor run workflows/canonical/implement-task-v0.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path"
+```
+
 Run a scenario from a fresh worktree. This keeps agent changes and ticket
 artifacts isolated and makes a replay safe:
 

@@ -32,7 +32,7 @@ agents:
       - workflow.input.ticket_dir
     command: python
     args:
-      - workflows/scripts/validate-ready-for-dev.py
+      - workflows/canonical/scripts/validate-ready-for-dev.py
       - "{{ workflow.input.ticket_dir }}"
     output:
       valid:
@@ -75,7 +75,7 @@ agents:
       - workflow.input.ticket_dir
     command: python
     args:
-      - workflows/scripts/start-implementation.py
+      - workflows/canonical/scripts/start-implementation.py
       - "{{ workflow.input.ticket_dir }}"
     output:
       new_ticket_dir:
@@ -119,7 +119,7 @@ agents:
     description: "Dev implements the task and produces DevHandoff"
     input:
       - start_implementation.output
-    system_prompt: !file ../agents/dev.md
+    system_prompt: !file C:/Users/david.gomez/.agentops/agents/dev.md
     prompt: |
       You are executing Dev workflow step: implement task and produce DevHandoff.
 
@@ -181,7 +181,7 @@ agents:
       - dev_implement.output
     command: python
     args:
-      - workflows/scripts/validate-dev-handoff.py
+      - workflows/canonical/scripts/validate-dev-handoff.py
       - "{{ dev_implement.output.handoff_path }}"
       - "{{ start_implementation.output.new_ticket_dir }}"
     output:
@@ -272,7 +272,7 @@ agents:
       - start_implementation.output
       - dev_implement.output
       - validate_dev_handoff.output
-    system_prompt: !file ../agents/reviewer.md
+    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
     prompt: |
       You are executing Reviewer workflow step: review implementation and produce ReviewResult.
 
@@ -320,7 +320,7 @@ agents:
       - dev_implement.output
       - validate_dev_handoff.output
       - revalidate_dev_handoff.output
-    system_prompt: !file ../agents/reviewer.md
+    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
     prompt: |
       You are executing Reviewer workflow step: review implementation and produce ReviewResult.
 
@@ -373,7 +373,7 @@ agents:
       - reviewer_review.output
     command: python
     args:
-      - workflows/scripts/validate-review-result.py
+      - workflows/canonical/scripts/validate-review-result.py
       - "{{ reviewer_review.output.review_result_path }}"
     output:
       valid:
@@ -417,7 +417,7 @@ agents:
       - validate_review_result.output
     command: python
     args:
-      - workflows/scripts/apply-review-verdict.py
+      - workflows/canonical/scripts/apply-review-verdict.py
       - "{{ start_implementation.output.new_ticket_dir }}"
       - "{{ validate_review_result.output.verdict }}"
     output:
@@ -491,7 +491,7 @@ agents:
       - pm_close_gate.output
     command: python
     args:
-      - workflows/scripts/apply-close-decision.py
+      - workflows/canonical/scripts/apply-close-decision.py
       - "{{ apply_review_verdict.output.new_ticket_dir }}"
       - "{{ pm_close_gate.output.selected }}"
     output:

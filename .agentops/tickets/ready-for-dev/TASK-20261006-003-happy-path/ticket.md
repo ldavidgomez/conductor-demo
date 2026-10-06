@@ -1,9 +1,10 @@
 ---
 taskId: TASK-20261006-003-happy-path
 status: ReadyForDev
+tddMode: simple
 activeWorkflowBranchId: null
 lastTransitionBy: HumanOperator
-lastTransitionReason: Demo seed: authorised for complete delivery
+lastTransitionReason: "Demo seed: authorised for complete delivery"
 updatedAt: 2026-10-06T10:00:00Z
 authorizedForDevBy: Demo presenter
 authorizedForDevAt: 2026-10-06T10:00:00Z
@@ -16,6 +17,10 @@ authorizationReason: Ticket has a bounded scope and deterministic test command.
 
 Implement and test a small greeting function, then demonstrate independent
 review, deterministic verification and human closure.
+
+## TDD Mode
+
+simple
 
 ## Scope
 
