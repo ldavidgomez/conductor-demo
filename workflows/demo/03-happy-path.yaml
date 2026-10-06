@@ -1,0 +1,130 @@
+workflow:
+  name: demo-happy-path
+  description: "Demo 3: Dev, Reviewer, deterministic tests and human closure reach Done"
+  version: "0.1.0"
+  entry_point: dev
+  runtime:
+    provider: copilot
+    model: auto
+  limits:
+    max_iterations: 7
+
+agents:
+  - name: dev
+    type: agent
+    model: auto
+    description: "Implement the complete ticket and its tests"
+    prompt: |
+      Act as Dev. Read .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/ticket.md
+      and its implementation-prompt.md.
+
+      Create demo-app/greeting.py and demo-app/tests/test_greeting.py. Implement
+      greeting(name) so that it returns "Hello, <name>!" for a non-empty name
+      and raises ValueError for an empty or whitespace-only name. Use only the
+      Python standard library. Run the requested unittest command.
+
+      Write .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/dev-handoff.md with changed files,
+      command results and known limitations. Do not modify files outside demo-app/
+      and .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/.
+    routes:
+      - to: reviewer
+
+  - name: reviewer
+    type: agent
+    model: auto
+    description: "Review the implementation independently"
+    prompt: |
+      Act as Reviewer. Read only:
+      - .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/ticket.md
+      - .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/dev-handoff.md
+      - demo-app/greeting.py
+      - demo-app/tests/test_greeting.py
+
+      Review every acceptance criterion and the test coverage. If all are met,
+      write .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/review-result.md with this exact first line:
+
+      verdict: Accepted
+
+      Then record the evidence checked. Do not change implementation files.
+    routes:
+      - to: validate_reviewer_verdict
+
+  - name: validate_reviewer_verdict
+    type: script
+    description: "Validate the Reviewer verdict before CI"
+    command: python
+    args:
+      - workflows/demo/scripts/validate_demo_verdict.py
+      - .agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path/review-result.md
+      - Accepted
+    output:
+      verdict:
+        type: string
+        description: "Reviewer verdict"
+      reason:
+        type: string
+        description: "Validation result"
+    routes:
+      - to: ci_tests
+        when: "exit_code == 0 and verdict == 'Accepted'"
+      - to: unexpected_result_gate
+
+  - name: ci_tests
+    type: script
+    description: "Run the deterministic test suite after review"
+    command: python
+    args:
+      - -m
+      - unittest
+      - discover
+      - -s
+      - demo-app/tests
+    routes:
+      - to: human_close_gate
+        when: "exit_code == 0"
+      - to: ci_failed_gate
+
+  - name: human_close_gate
+    type: human_gate
+    description: "A human explicitly closes the accepted ticket"
+    prompt: |
+      Reviewer verdict: Accepted
+      Deterministic tests: passed
+
+      A person now decides whether this evidence is sufficient to close the work.
+    options:
+      - label: "Close ticket as Done"
+        value: done
+        route: "$end"
+      - label: "Request changes"
+        value: changes_requested
+        route: "$end"
+
+  - name: ci_failed_gate
+    type: human_gate
+    description: "Tests failed after an Accepted review"
+    prompt: |
+      The Reviewer accepted the change but deterministic tests failed.
+
+      Exit code: {{ ci_tests.output.exit_code }}
+      Standard error: {{ ci_tests.output.stderr }}
+    options:
+      - label: "Investigate before closure"
+        value: investigate
+        route: "$end"
+
+  - name: unexpected_result_gate
+    type: human_gate
+    description: "The expected Accepted review verdict did not occur"
+    prompt: |
+      The Reviewer did not produce the expected Accepted verdict.
+
+      Exit code: {{ validate_reviewer_verdict.output.exit_code }}
+      Standard error: {{ validate_reviewer_verdict.output.stderr }}
+    options:
+      - label: "Stop and inspect artifacts"
+        value: inspect
+        route: "$end"
+
+output:
+  verdict: "{{ validate_reviewer_verdict.output.verdict }}"

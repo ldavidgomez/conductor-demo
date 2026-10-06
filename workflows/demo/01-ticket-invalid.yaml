@@ -1,0 +1,63 @@
+workflow:
+  name: demo-ticket-invalid
+  description: "Demo 1: deterministic ticket validation prevents an invalid task from reaching Dev"
+  version: "0.1.0"
+  entry_point: validate_ticket
+  runtime:
+    provider: copilot
+    model: auto
+  limits:
+    max_iterations: 3
+
+agents:
+  - name: validate_ticket
+    type: script
+    description: "Validate the fixture and emit TicketInvalid without invoking an LLM"
+    command: python
+    args:
+      - workflows/demo/scripts/validate_demo_ticket.py
+      - .agentops/tickets/ready-for-dev/TASK-20261006-001-ticket-invalid/ticket.md
+    output:
+      verdict:
+        type: string
+        description: "Expected ticket verdict"
+      reason:
+        type: string
+        description: "Concrete validation failure"
+    routes:
+      - to: ticket_invalid_gate
+        when: "exit_code == 0 and verdict == 'TicketInvalid'"
+      - to: unexpected_result_gate
+
+  - name: ticket_invalid_gate
+    type: human_gate
+    description: "The invalid ticket is stopped before Dev"
+    prompt: |
+      Ticket rejected before implementation.
+
+      Verdict: {{ validate_ticket.output.verdict }}
+      Reason: {{ validate_ticket.output.reason }}
+
+      No Dev or Reviewer agent was invoked. The workflow has protected the team
+      from spending time and tokens on an unauthorised, incomplete task.
+    options:
+      - label: "Acknowledge and return to refinement"
+        value: return_to_refinement
+        route: "$end"
+
+  - name: unexpected_result_gate
+    type: human_gate
+    description: "The fixture did not produce the expected deterministic rejection"
+    prompt: |
+      The demo fixture unexpectedly passed or the validation script failed.
+
+      Exit code: {{ validate_ticket.output.exit_code }}
+      Standard error: {{ validate_ticket.output.stderr }}
+    options:
+      - label: "Stop and inspect the fixture"
+        value: inspect
+        route: "$end"
+
+output:
+  verdict: "{{ validate_ticket.output.verdict }}"
+  reason: "{{ validate_ticket.output.reason }}"

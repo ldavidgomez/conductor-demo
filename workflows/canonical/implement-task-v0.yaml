@@ -1,0 +1,580 @@
+workflow:
+  name: agentops-implement-task-v0
+  description: "AgentOps task implementation workflow — Dev → Reviewer → verdict (V0)"
+  version: "0.1.0"
+  entry_point: validate_ready_for_dev
+  runtime:
+    provider: copilot
+    default_model: auto
+    mcp_servers:
+      filesystem:
+        type: stdio
+        command: npx
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-filesystem"
+          - "."
+  input:
+    ticket_dir:
+      type: string
+      required: true
+      description: "Path to ticket directory inside .agentops/tickets/ready-for-dev/"
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 50
+
+agents:
+  - name: validate_ready_for_dev
+    type: script
+    description: "Validate task is in ready-for-dev/ with ReadyForDev status and authorization fields"
+    input:
+      - workflow.input.ticket_dir
+    command: python
+    args:
+      - workflows/scripts/validate-ready-for-dev.py
+      - "{{ workflow.input.ticket_dir }}"
+    output:
+      valid:
+        type: boolean
+        description: "True if task is authorized and ready for implementation"
+      error:
+        type: string
+        description: "Error message if invalid, empty string if valid"
+    routes:
+      - to: start_implementation
+        when: "exit_code == 0"
+      - to: ready_for_dev_invalid_gate
+
+  - name: ready_for_dev_invalid_gate
+    type: human_gate
+    description: "Task is not in a valid ReadyForDev state; implementation cannot begin"
+    prompt: |
+      Task failed ready-for-dev validation.
+
+      Ticket directory: {{ workflow.input.ticket_dir }}
+      Error: {{ validate_ready_for_dev.output.error }}
+
+      Ensure the task is in .agentops/tickets/ready-for-dev/ with:
+        status: ReadyForDev
+        authorizedForDevBy: <who authorized>
+        authorizedForDevAt: <ISO-8601 timestamp>
+        authorizationReason: <reason>
+    options:
+      - label: "Acknowledge — fix manually and rerun workflow"
+        value: acknowledge_repair
+        route: "collect_output"
+      - label: "Cancel"
+        value: cancel
+        route: "collect_output"
+
+  - name: start_implementation
+    type: script
+    description: "Deterministic start: create WorkflowBranch, set InProgress, move to in-progress/"
+    input:
+      - workflow.input.ticket_dir
+    command: python
+    args:
+      - workflows/scripts/start-implementation.py
+      - "{{ workflow.input.ticket_dir }}"
+    output:
+      new_ticket_dir:
+        type: string
+        description: "New ticket directory path under .agentops/tickets/in-progress/"
+      workflow_branch_id:
+        type: string
+        description: "WorkflowBranch ID (WFBR-... format)"
+      valid:
+        type: boolean
+        description: "True if start step succeeded"
+      error:
+        type: string
+        description: "Error message if failed, empty string if successful"
+    routes:
+      - to: dev_implement
+        when: "exit_code == 0"
+      - to: start_impl_failed_gate
+
+  - name: start_impl_failed_gate
+    type: human_gate
+    description: "Implementation start step failed; task state may be partially modified"
+    prompt: |
+      start-implementation.py failed.
+
+      Ticket directory: {{ workflow.input.ticket_dir }}
+      Error: {{ start_implementation.output.error }}
+
+      Inspect the ticket directory for partial state before rerunning.
+    options:
+      - label: "Acknowledge — inspect and repair manually"
+        value: acknowledge_repair
+        route: "collect_output"
+      - label: "Cancel"
+        value: cancel
+        route: "collect_output"
+
+  - name: dev_implement
+    model: auto
+    type: agent
+    description: "Dev implements the task and produces DevHandoff"
+    input:
+      - start_implementation.output
+    system_prompt: !file ../agents/dev.md
+    prompt: |
+      You are executing Dev workflow step: implement task and produce DevHandoff.
+
+      Follow your canonical Dev instructions from system_prompt. Perform only this
+      workflow step.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      Task ID: derived from ticket.md in the ticket directory
+      WorkflowBranch ID: {{ start_implementation.output.workflow_branch_id }}
+
+      Path safety: write dev-handoff.md and ticket.md status updates only under
+      the ticket directory above. Do not write to `~/.agentops/` or outside the
+      repository root.
+
+      You MUST:
+      1. Read ticket.md and implementation-prompt.md in the ticket directory.
+      2. Inspect the existing project tooling before implementing:
+        - Read package.json before running npm/npx commands.
+        - Use existing scripts and existing test tooling.
+        - Do not install new dependencies unless the ticket explicitly requires it.
+        - Do not add Jest, Vitest, ts-jest, or any test framework unless already present or explicitly requested.
+      3. Implement the task as defined.
+      4. Produce a physical DevHandoff artifact named dev-handoff.md in the ticket directory.
+      5. Update task status to DevComplete in ticket.md frontmatter only if implementation completed.
+      6. Before returning, verify that:
+        - dev-handoff.md exists at the exact path returned in handoff_path.
+        - dev-handoff.md is non-empty.
+        - dev-handoff.md documents changed files, validation commands, results, and known limitations.
+
+      If implementation cannot be completed because of tooling problems, missing dependencies, provider/rate-limit issues, test runner uncertainty, or environment constraints:
+      - Do not pretend success.
+      - Still create dev-handoff.md in the ticket directory.
+      - Set task status to ChangesRequested or Blocked according to the failure.
+      - In dev-handoff.md, document:
+        - what was attempted,
+        - what changed,
+        - which commands were run,
+        - exact failure reason,
+        - required human action.
+      - Return handoff_path only after the handoff file physically exists.
+
+      You MUST NOT return handoff_path unless the file has been created and verified.
+      You MUST NOT output structured JSON until the handoff file exists.
+
+      When done, output structured JSON with this exact field:
+      - handoff_path: relative path to the verified dev-handoff.md file
+    output:
+      handoff_path:
+        type: string
+        description: "Relative path to dev-handoff.md artifact"
+    routes:
+      - to: validate_dev_handoff
+
+  - name: validate_dev_handoff
+    type: script
+    description: "Validate DevHandoff before Reviewer"
+    input:
+      - start_implementation.output
+      - dev_implement.output
+    command: python
+    args:
+      - workflows/scripts/validate-dev-handoff.py
+      - "{{ dev_implement.output.handoff_path }}"
+      - "{{ start_implementation.output.new_ticket_dir }}"
+    output:
+      valid:
+        type: boolean
+        description: "True if DevHandoff is valid for review"
+      error:
+        type: string
+        description: "Error message if invalid, empty string if valid"
+    routes:
+      - to: reviewer_review
+        when: "exit_code == 0"
+      - to: dev_handoff_invalid_gate
+
+  - name: dev_handoff_invalid_gate
+    type: human_gate
+    description: "DevHandoff invalid; required handoff artifact is missing or inconsistent"
+    prompt: |
+      DevHandoff failed validation.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      DevHandoff: {{ dev_implement.output.handoff_path }}
+      Error: {{ validate_dev_handoff.output.error }}
+
+      This usually means the Dev agent did not complete the workflow contract.
+      Do not manually create dev-handoff.md unless you have verified the implementation changes.
+      Recommended action: inspect git diff, revert partial changes if needed, and rerun Dev after fixing provider/tooling.
+    options:
+      - label: "Acknowledge — revert partial changes and rerun Dev"
+        value: acknowledge_revert_and_rerun
+        route: "collect_output"
+      - label: "Cancel task"
+        value: cancel
+        route: "collect_output"
+      - label: "Revalidate existing DevHandoff and continue to Reviewer"
+        value: revalidate_and_continue
+        route: revalidate_dev_handoff
+
+  - name: revalidate_dev_handoff
+    type: script
+    description: "Re-run validate-dev-handoff.py against the manually-repaired DevHandoff artifact"
+    input:
+      - start_implementation.output
+      - dev_implement.output
+    command: python
+    args:
+      - workflows/scripts/validate-dev-handoff.py
+      - "{{ dev_implement.output.handoff_path }}"
+      - "{{ start_implementation.output.new_ticket_dir }}"
+    output:
+      valid:
+        type: boolean
+        description: "True if revalidated DevHandoff is valid for review"
+      error:
+        type: string
+        description: "Error message if invalid, empty string if valid"
+    routes:
+      - to: reviewer_review_after_handoff_recovery
+        when: "exit_code == 0"
+      - to: revalidate_failed_gate
+
+  - name: revalidate_failed_gate
+    type: human_gate
+    description: "Revalidated DevHandoff still invalid; human must inspect and terminate"
+    prompt: |
+      DevHandoff revalidation failed.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      DevHandoff: {{ dev_implement.output.handoff_path }}
+      Error: {{ revalidate_dev_handoff.output.error }}
+
+      The manually-repaired DevHandoff still does not pass validate-dev-handoff.py.
+      Inspect the artifact and repair it further, then retry the revalidation option,
+      or cancel the task.
+    options:
+      - label: "Acknowledge"
+        value: acknowledge
+        route: "collect_output"
+      - label: "Cancel task"
+        value: cancel
+        route: "collect_output"
+
+  - name: reviewer_review
+    model: auto
+    type: agent
+    description: "Reviewer reviews implementation and produces ReviewResult"
+    input:
+      - start_implementation.output
+      - dev_implement.output
+      - validate_dev_handoff.output
+    system_prompt: !file ../agents/reviewer.md
+    prompt: |
+      You are executing Reviewer workflow step: review implementation and produce ReviewResult.
+
+      Follow your canonical Reviewer instructions from system_prompt. Perform only this
+      workflow step.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      DevHandoff: {{ dev_implement.output.handoff_path }}
+
+      Path safety: write review-result.md and ticket.md status updates only under
+      the ticket directory above. Do not write to `~/.agentops/` or outside the
+      repository root.
+
+      You MUST:
+      1. Clear context before review per agent-system/context-lifecycle.md.
+      2. Read exactly these task-local files:
+         - {{ start_implementation.output.new_ticket_dir }}/ticket.md
+         - {{ start_implementation.output.new_ticket_dir }}/review-prompt.md
+         - {{ start_implementation.output.new_ticket_dir }}/dev-handoff.md
+         Do NOT read templates/prompts/review-prompt.md.
+         WorkflowBranch ID is workflow metadata only — do NOT use it as a git
+         branch or git revision. Do NOT run `git diff <workflowBranchId>`.
+         Use current working tree diff / git status and DevHandoff evidence.
+      3. Review the implementation against acceptance criteria and governance rules.
+      4. Produce a ReviewResult artifact named review-result.md in the ticket directory.
+      5. Set task status to your verdict in ticket.md frontmatter.
+         Leave WorkflowBranch.status: Active — do not terminate it.
+         Folder transitions are handled by apply-review-verdict.py after this step.
+
+      When done, output structured JSON with this exact field:
+      - review_result_path: relative path to review-result.md
+    output:
+      review_result_path:
+        type: string
+        description: "Relative path to review-result.md artifact"
+    routes:
+      - to: validate_review_result
+
+  - name: reviewer_review_after_handoff_recovery
+    model: auto
+    type: agent
+    description: "Reviewer reviews implementation and produces ReviewResult"
+    input:
+      - start_implementation.output
+      - dev_implement.output
+      - validate_dev_handoff.output
+      - revalidate_dev_handoff.output
+    system_prompt: !file ../agents/reviewer.md
+    prompt: |
+      You are executing Reviewer workflow step: review implementation and produce ReviewResult.
+
+      Follow your canonical Reviewer instructions from system_prompt. Perform only this
+      workflow step.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      DevHandoff: {{ dev_implement.output.handoff_path }}
+
+      This review is reached through the DevHandoff recovery path.
+
+      The original validate_dev_handoff.output may contain the previous failed validation result.
+      The current authoritative handoff validation result for workflow continuation is revalidate_dev_handoff.output.
+
+      If revalidate_dev_handoff.output.valid is true, do not treat the stale validate_dev_handoff failure as an active blocker.
+
+      Path safety: write review-result.md and ticket.md status updates only under
+      the ticket directory above. Do not write to `~/.agentops/` or outside the
+      repository root.
+
+      You MUST:
+      1. Clear context before review per agent-system/context-lifecycle.md.
+      2. Read exactly these task-local files:
+         - {{ start_implementation.output.new_ticket_dir }}/ticket.md
+         - {{ start_implementation.output.new_ticket_dir }}/review-prompt.md
+         - {{ start_implementation.output.new_ticket_dir }}/dev-handoff.md
+         Do NOT read templates/prompts/review-prompt.md.
+         WorkflowBranch ID is workflow metadata only — do NOT use it as a git
+         branch or git revision. Do NOT run `git diff <workflowBranchId>`.
+         Use current working tree diff / git status and DevHandoff evidence.
+      3. Review the implementation against acceptance criteria and governance rules.
+      4. Produce a ReviewResult artifact named review-result.md in the ticket directory.
+      5. Set task status to your verdict in ticket.md frontmatter.
+         Leave WorkflowBranch.status: Active — do not terminate it.
+         Folder transitions are handled by apply-review-verdict.py after this step.
+
+      When done, output structured JSON with this exact field:
+      - review_result_path: relative path to review-result.md
+    output:
+      review_result_path:
+        type: string
+        description: "Relative path to review-result.md artifact"
+    routes:
+      - to: validate_review_result
+
+  - name: validate_review_result
+    type: script
+    description: "Validate ReviewResult and extract verdict for routing"
+    input:
+      - reviewer_review.output
+    command: python
+    args:
+      - workflows/scripts/validate-review-result.py
+      - "{{ reviewer_review.output.review_result_path }}"
+    output:
+      valid:
+        type: boolean
+        description: "True if ReviewResult is schema-valid"
+      verdict:
+        type: string
+        description: "Verdict: Accepted | ChangesRequested | Rejected | TicketInvalid"
+      error:
+        type: string
+        description: "Error message if invalid, empty string if valid"
+    routes:
+      - to: apply_review_verdict
+        when: "exit_code == 0"
+      - to: review_result_invalid_gate
+
+  - name: review_result_invalid_gate
+    type: human_gate
+    description: "ReviewResult invalid; verdict artifact is missing, malformed, or unroutable"
+    prompt: |
+      ReviewResult failed validation or could not be routed.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      ReviewResult: {{ reviewer_review.output.review_result_path }}
+      Error: {{ validate_review_result.output.error }}
+
+      The workflow cannot continue until the ReviewResult is repaired.
+    options:
+      - label: "Acknowledge — repair manually"
+        value: acknowledge_repair
+        route: "collect_output"
+      - label: "Cancel task"
+        value: cancel
+        route: "collect_output"
+
+  - name: apply_review_verdict
+    type: script
+    description: "Move ticket to correct folder lane per verdict; terminalize branch for Rejected/TicketInvalid"
+    input:
+      - start_implementation.output
+      - validate_review_result.output
+    command: python
+    args:
+      - workflows/scripts/apply-review-verdict.py
+      - "{{ start_implementation.output.new_ticket_dir }}"
+      - "{{ validate_review_result.output.verdict }}"
+    output:
+      valid:
+        type: boolean
+        description: "True if verdict was applied successfully"
+      new_ticket_dir:
+        type: string
+        description: "New ticket directory path after folder move"
+      applied_status:
+        type: string
+        description: "Task status after verdict applied"
+      error:
+        type: string
+        description: "Error message if failed, empty string if successful"
+    routes:
+      - to: pm_close_gate
+        when: "exit_code == 0 and applied_status == 'Accepted'"
+      - to: changes_requested_gate
+        when: "exit_code == 0 and applied_status == 'ChangesRequested'"
+      - to: ticket_invalid_gate
+        when: "exit_code == 0 and applied_status == 'TicketInvalid'"
+      - to: rejected_gate
+        when: "exit_code == 0 and applied_status == 'Rejected'"
+      - to: apply_verdict_failed_gate
+
+  - name: apply_verdict_failed_gate
+    type: human_gate
+    description: "apply-review-verdict.py failed; ticket folder state may be inconsistent"
+    prompt: |
+      apply-review-verdict.py failed.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      Verdict attempted: {{ validate_review_result.output.verdict }}
+      Error: {{ apply_review_verdict.output.error }}
+
+      Inspect the ticket directory for partial state before rerunning.
+    options:
+      - label: "Acknowledge — inspect and repair manually"
+        value: acknowledge_repair
+        route: "collect_output"
+      - label: "Cancel task"
+        value: cancel
+        route: "collect_output"
+
+  - name: pm_close_gate
+    type: human_gate
+    description: "Human/PM closure gate after Accepted verdict"
+    prompt: |
+      Reviewer verdict: Accepted
+      Ticket directory: {{ apply_review_verdict.output.new_ticket_dir }}
+
+      The implementation was accepted and the task is now in accepted/.
+      Choose the manual closure action.
+    options:
+      - label: "Close task as Done"
+        value: close_done
+        route: pm_apply_close_decision
+      - label: "Override: Request Changes"
+        value: override_changes
+        route: pm_apply_close_decision
+      - label: "Override: Reject"
+        value: override_reject
+        route: pm_apply_close_decision
+
+  - name: pm_apply_close_decision
+    type: script
+    description: "Apply the selected pm_close_gate decision; moves task from accepted/ to final lane"
+    input:
+      - apply_review_verdict.output
+      - pm_close_gate.output
+    command: python
+    args:
+      - workflows/scripts/apply-close-decision.py
+      - "{{ apply_review_verdict.output.new_ticket_dir }}"
+      - "{{ pm_close_gate.output.selected }}"
+    output:
+      valid:
+        type: boolean
+        description: "True if decision was applied successfully"
+      status:
+        type: string
+        description: "Resulting task status after decision applied"
+      error:
+        type: string
+        description: "Error message if failed, empty string if successful"
+    routes:
+      - to: collect_output
+
+  - name: changes_requested_gate
+    type: human_gate
+    description: "Human gate for ChangesRequested; V0 repair loops are manual"
+    prompt: |
+      Reviewer verdict: ChangesRequested
+      Ticket directory: {{ apply_review_verdict.output.new_ticket_dir }}
+      ReviewResult: {{ reviewer_review.output.review_result_path }}
+
+      The task is now in changes-requested/. activeWorkflowBranchId remains set and
+      the WorkflowBranch remains Active. Repair is manual on the same active WorkflowBranch.
+      Dev re-implements directly; Reviewer re-reviews directly. The final verdict is then
+      applied manually following the folder-lane and ReviewResult contract.
+      Do not re-run implement-task-v0.yaml for ChangesRequested repair in V0.
+    options:
+      - label: "Acknowledge — repair manually"
+        value: acknowledge_repair
+        route: "collect_output"
+      - label: "Cancel task"
+        value: cancel
+        route: "collect_output"
+
+  - name: ticket_invalid_gate
+    type: human_gate
+    description: "Human gate for TicketInvalid; PM must repair the ticket before a new implementation attempt"
+    prompt: |
+      Reviewer verdict: TicketInvalid
+      Ticket directory: {{ apply_review_verdict.output.new_ticket_dir }}
+      ReviewResult: {{ reviewer_review.output.review_result_path }}
+
+      The task is now in ticket-invalid/. The WorkflowBranch has been terminalized.
+      PM must repair the ticket (produce pm-ticket-repair.md), then create a new
+      implementation workflow run via implement-task-v0.yaml with a fresh ReadyForDev
+      authorization.
+    options:
+      - label: "Acknowledge — PM will repair ticket"
+        value: acknowledge_repair
+        route: "collect_output"
+      - label: "Cancel task"
+        value: cancel
+        route: "collect_output"
+
+  - name: rejected_gate
+    type: human_gate
+    description: "Human gate for Rejected; WorkflowBranch has been terminalized"
+    prompt: |
+      Reviewer verdict: Rejected
+      Ticket directory: {{ apply_review_verdict.output.new_ticket_dir }}
+      ReviewResult: {{ reviewer_review.output.review_result_path }}
+
+      The task is now in rejected/. The WorkflowBranch has been terminalized.
+      No further implementation is expected for this task.
+    options:
+      - label: "Acknowledge"
+        value: acknowledge
+        route: "collect_output"
+
+  - name: collect_output
+    type: set
+    description: "Normalize workflow output across all exit paths — always executes before $end"
+    input:
+      - validate_review_result.output?
+      - apply_review_verdict.output?
+    values:
+      verdict: "{% if validate_review_result is defined %}{{ validate_review_result.output.verdict }}{% else %}{% endif %}"
+      final_ticket_dir: "{% if apply_review_verdict is defined %}{{ apply_review_verdict.output.new_ticket_dir }}{% else %}{% endif %}"
+    routes:
+      - to: "$end"
+
+output:
+  verdict: "{{ collect_output.output.verdict }}"
+  final_ticket_dir: "{{ collect_output.output.final_ticket_dir }}"
