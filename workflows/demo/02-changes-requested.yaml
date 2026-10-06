@@ -1,104 +1,53 @@
 workflow:
   name: demo-changes-requested
-  description: "Demo 2: Reviewer requests changes for an explicit, injected defect"
+  description: "Demo 2: canonical Reviewer rejects a seeded Dev delivery"
   version: "0.1.0"
-  entry_point: dev
+  entry_point: reviewer
   runtime:
     provider: copilot
     model: auto
-  limits:
-    max_iterations: 6
-
 agents:
-  - name: dev
-    type: agent
-    model: auto
-    description: "Implement the deliberately incomplete first attempt"
-    prompt: |
-      Act as Dev in a controlled demo. Read .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/ticket.md
-      and its implementation-prompt.md.
-
-      Create demo-app/greeting.py with a greeting(name) function that returns
-      "Hello, <name>!" for a non-empty name. For this scenario only, deliberately
-      do NOT reject empty names. This is an injected defect so that the review
-      route is deterministic and visible in the presentation.
-
-      Write .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/dev-handoff.md. Include changed
-      files, the command you ran, its result, and the known deliberate limitation.
-
-      Do not modify files outside demo-app/ and .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/.
-    routes:
-      - to: reviewer
-
   - name: reviewer
     type: agent
     model: auto
-    description: "Independently detect the injected acceptance-criterion failure"
+    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
     prompt: |
-      Act as Reviewer. Read only:
-      - .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/ticket.md
-      - .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/dev-handoff.md
-      - demo-app/greeting.py
-
-      Review the implementation against the acceptance criteria. The empty-name
-      criterion is intentionally missing. Write .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/review-result.md
-      with this exact first line:
-
-      verdict: ChangesRequested
-
-      Then explain the failed criterion, the evidence, and the smallest required
-      correction. Do not implement the correction yourself.
+      Review the canonical Dev delivery in .agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes.
+      The task requires ValueError for empty or whitespace-only names. Inspect demo-app/greeting.py.
+      Produce a canonical ReviewResult in that ticket directory with ChangesRequested and a concrete finding.
+      Do not modify implementation files.
     routes:
-      - to: validate_reviewer_verdict
-
-  - name: validate_reviewer_verdict
+      - to: validate_review_result
+  - name: validate_review_result
     type: script
-    description: "Verify that Reviewer produced the expected structured verdict"
     command: python
     args:
-      - workflows/demo/scripts/validate_demo_verdict.py
-      - .agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/review-result.md
-      - ChangesRequested
+      - workflows/canonical/scripts/validate-review-result.py
+      - .agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes/review-result.md
     output:
       verdict:
         type: string
-        description: "Reviewer verdict"
-      reason:
+        description: "Canonical Reviewer verdict"
+      error:
         type: string
-        description: "Validation result"
+        description: "Validation error"
     routes:
       - to: changes_requested_gate
         when: "exit_code == 0 and verdict == 'ChangesRequested'"
       - to: unexpected_result_gate
-
   - name: changes_requested_gate
     type: human_gate
-    description: "Show the human decision point after an independent review"
-    prompt: |
-      Reviewer requested changes.
-
-      The ticket does not satisfy the empty-name acceptance criterion. Conductor
-      has preserved the Dev output, the review artifact and the route decision.
-
-      In the full design, the next route may return to Dev with a bounded counter.
-      This short demo stops here so the review evidence remains visible.
+    prompt: "Reviewer returned ChangesRequested. The evidence remains with the ticket."
     options:
-      - label: "Acknowledge changes requested"
+      - label: "Acknowledge and return to Dev"
         value: acknowledge
         route: "$end"
-
   - name: unexpected_result_gate
     type: human_gate
-    description: "The expected review route did not occur"
-    prompt: |
-      The scenario did not produce ChangesRequested.
-
-      Exit code: {{ validate_reviewer_verdict.output.exit_code }}
-      Standard error: {{ validate_reviewer_verdict.output.stderr }}
+    prompt: "Unexpected Reviewer result: {{ validate_review_result.output.error }}"
     options:
       - label: "Stop and inspect artifacts"
         value: inspect
         route: "$end"
-
 output:
-  verdict: "{{ validate_reviewer_verdict.output.verdict }}"
+  verdict: "{{ validate_review_result.output.verdict }}"

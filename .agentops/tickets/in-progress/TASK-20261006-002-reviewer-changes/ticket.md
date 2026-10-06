@@ -1,9 +1,10 @@
 ---
 taskId: TASK-20261006-002-reviewer-changes
-status: ReadyForDev
-activeWorkflowBranchId: null
-lastTransitionBy: HumanOperator
-lastTransitionReason: "Demo seed: authorised for review scenario"
+status: DevComplete
+tddMode: simple
+activeWorkflowBranchId: WFBR-20261006-002-reviewer-changes
+lastTransitionBy: Dev
+lastTransitionReason: "Demo seed: Dev delivery ready for review"
 updatedAt: 2026-10-06T10:00:00Z
 authorizedForDevBy: Demo presenter
 authorizedForDevAt: 2026-10-06T10:00:00Z
