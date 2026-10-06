@@ -140,7 +140,7 @@ folders. It preserves the seeded Reviewer scenario.
 ## Canonical behavior
 
 The authoritative AgentOps roles, governance, contracts and workflow rules live
-outside this repository in `C:\Users\david.gomez\.agentops`. The local
+outside this repository in `C:\Users\[user_name]\.agentops`. The local
 `workflows/canonical/` directory is a versioned execution snapshot with paths
 adapted for this demo repository. Demo workflows add scenario routing only;
 they do not redefine Dev or Reviewer behavior.
