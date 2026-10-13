@@ -44,13 +44,13 @@ conductor validate workflows/demo/agentops-demo.yaml
 
 ```powershell
 # 1. Invalid ticket: finishes before any LLM invocation.
-conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-001-ticket-invalid" --web
+conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-001-ticket-invalid" --web --web-port 3000
 
 # 2. Existing Dev delivery: Reviewer requests changes.
-conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes" --web
+conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes" --web --web-port 3000
 
 # 3. Full canonical-style route: approximately six minutes with live agents.
-conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path" --web
+conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path" --web --web-port 3000
 ```
 
 ## Reset after a run
