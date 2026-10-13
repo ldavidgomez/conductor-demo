@@ -1,0 +1,326 @@
+workflow:
+  name: agentops-demo
+  description: "One resumable AgentOps workflow demonstrated through three ticket states"
+  version: "0.2.0"
+  entry_point: select_entry
+  runtime:
+    provider: copilot
+    model: auto
+  input:
+    ticket_dir:
+      type: string
+      required: true
+      description: "Ticket directory in ready-for-dev/ or in-progress/"
+  limits:
+    max_iterations: 20
+
+agents:
+  - name: select_entry
+    type: script
+    description: "Route from the ticket's current lifecycle state without changing it"
+    command: python
+    args:
+      - workflows/demo/scripts/select_demo_entry.py
+      - "{{ workflow.input.ticket_dir }}"
+    output:
+      phase:
+        type: string
+      error:
+        type: string
+    routes:
+      - to: validate_ready_for_dev
+        when: "exit_code == 0 and phase == 'ready'"
+      - to: set_context_from_seed
+        when: "exit_code == 0 and phase == 'review'"
+      - to: unsupported_state_gate
+
+  - name: validate_ready_for_dev
+    type: script
+    description: "Canonical deterministic ReadyForDev validation"
+    command: python
+    args:
+      - workflows/canonical/scripts/validate-ready-for-dev.py
+      - "{{ workflow.input.ticket_dir }}"
+    output:
+      valid:
+        type: boolean
+      error:
+        type: string
+    routes:
+      - to: start_implementation
+        when: "exit_code == 0"
+      - to: ticket_invalid_gate
+
+  - name: ticket_invalid_gate
+    type: human_gate
+    description: "The same workflow stops invalid work before Dev"
+    prompt: |
+      Ticket rejected before implementation.
+
+      Ticket directory: {{ workflow.input.ticket_dir }}
+      Reason: {{ validate_ready_for_dev.output.error }}
+
+      No Dev or Reviewer agent was invoked.
+    options:
+      - label: "Acknowledge and return to refinement"
+        value: return_to_refinement
+        route: "$end"
+
+  - name: start_implementation
+    type: script
+    description: "Canonical transition: create WorkflowBranch and move to InProgress"
+    command: python
+    args:
+      - workflows/canonical/scripts/start-implementation.py
+      - "{{ workflow.input.ticket_dir }}"
+    output:
+      new_ticket_dir:
+        type: string
+      workflow_branch_id:
+        type: string
+      error:
+        type: string
+    routes:
+      - to: dev_implement
+        when: "exit_code == 0"
+      - to: implementation_start_failed_gate
+
+  - name: dev_implement
+    type: agent
+    model: auto
+    system_prompt: !file C:/Users/david.gomez/.agentops/agents/dev.md
+    prompt: |
+      Execute the canonical Dev step only.
+
+      Ticket directory: {{ start_implementation.output.new_ticket_dir }}
+      WorkflowBranch ID: {{ start_implementation.output.workflow_branch_id }}
+
+      Read ticket.md and implementation-prompt.md. Implement only the approved
+      task, run the project test command, update ticket status to DevComplete
+      only on completion, and create a canonical dev-handoff.md in the ticket
+      directory. Return handoff_path only after that physical artifact exists.
+    output:
+      handoff_path:
+        type: string
+    routes:
+      - to: set_context_from_dev
+
+  - name: set_context_from_dev
+    type: script
+    description: "Converge the new implementation route with the review-resume route"
+    command: python
+    args:
+      - workflows/demo/scripts/set_demo_context.py
+      - "{{ start_implementation.output.new_ticket_dir }}"
+    routes:
+      - to: load_context
+
+  - name: set_context_from_seed
+    type: script
+    description: "Resume the same workflow from an existing DevComplete handoff"
+    command: python
+    args:
+      - workflows/demo/scripts/set_demo_context.py
+      - "{{ workflow.input.ticket_dir }}"
+    routes:
+      - to: load_context
+
+  - name: load_context
+    type: script
+    description: "Load the ticket path for the common handoff, review and verdict route"
+    command: python
+    args:
+      - workflows/demo/scripts/load_demo_context.py
+    output:
+      ticket_dir:
+        type: string
+      handoff_path:
+        type: string
+      review_result_path:
+        type: string
+    routes:
+      - to: validate_dev_handoff
+
+  - name: validate_dev_handoff
+    type: script
+    description: "Canonical validation of the Dev evidence package"
+    command: python
+    args:
+      - workflows/canonical/scripts/validate-dev-handoff.py
+      - "{{ load_context.output.handoff_path }}"
+      - "{{ load_context.output.ticket_dir }}"
+    output:
+      valid:
+        type: boolean
+      error:
+        type: string
+    routes:
+      - to: reviewer_review
+        when: "exit_code == 0"
+      - to: dev_handoff_invalid_gate
+
+  - name: reviewer_review
+    type: agent
+    model: auto
+    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
+    prompt: |
+      Execute the canonical Reviewer step only.
+
+      Ticket directory: {{ load_context.output.ticket_dir }}
+      DevHandoff: {{ load_context.output.handoff_path }}
+
+      Clear review context as required. Read the ticket, review-prompt.md and
+      dev-handoff.md in that ticket directory. Inspect the actual working-tree
+      changes and tests. Produce a canonical review-result.md in the ticket
+      directory, update ticket status to your verdict, and return its path.
+    output:
+      review_result_path:
+        type: string
+    routes:
+      - to: validate_review_result
+
+  - name: validate_review_result
+    type: script
+    description: "Canonical validation of the ReviewResult before routing"
+    command: python
+    args:
+      - workflows/canonical/scripts/validate-review-result.py
+      - "{{ reviewer_review.output.review_result_path }}"
+    output:
+      valid:
+        type: boolean
+      verdict:
+        type: string
+      error:
+        type: string
+    routes:
+      - to: apply_review_verdict
+        when: "exit_code == 0"
+      - to: review_result_invalid_gate
+
+  - name: apply_review_verdict
+    type: script
+    description: "Canonical folder-lane transition for the validated verdict"
+    command: python
+    args:
+      - workflows/canonical/scripts/apply-review-verdict.py
+      - "{{ load_context.output.ticket_dir }}"
+      - "{{ validate_review_result.output.verdict }}"
+    output:
+      new_ticket_dir:
+        type: string
+      applied_status:
+        type: string
+      error:
+        type: string
+    routes:
+      - to: ci_tests
+        when: "exit_code == 0 and applied_status == 'Accepted'"
+      - to: changes_requested_gate
+        when: "exit_code == 0 and applied_status == 'ChangesRequested'"
+      - to: terminal_verdict_gate
+
+  - name: ci_tests
+    type: script
+    description: "Run deterministic project tests after an Accepted review"
+    command: python
+    args:
+      - -m
+      - unittest
+      - discover
+      - -s
+      - demo-app/tests
+    routes:
+      - to: close_gate
+        when: "exit_code == 0"
+      - to: ci_failed_gate
+
+  - name: close_gate
+    type: human_gate
+    description: "Human accountability remains explicit after automated evidence"
+    prompt: |
+      Reviewer verdict: Accepted
+      CI tests: passed
+      Ticket directory: {{ apply_review_verdict.output.new_ticket_dir }}
+
+      Decide whether this evidence is sufficient to close the task.
+    options:
+      - label: "Close task as Done"
+        value: close_done
+        route: apply_close_decision
+      - label: "Override: Request Changes"
+        value: override_changes
+        route: apply_close_decision
+
+  - name: apply_close_decision
+    type: script
+    command: python
+    args:
+      - workflows/canonical/scripts/apply-close-decision.py
+      - "{{ apply_review_verdict.output.new_ticket_dir }}"
+      - "{{ close_gate.output.selected }}"
+    routes:
+      - to: "$end"
+
+  - name: changes_requested_gate
+    type: human_gate
+    prompt: |
+      Reviewer verdict: ChangesRequested
+      Ticket directory: {{ apply_review_verdict.output.new_ticket_dir }}
+
+      The same workflow has routed the incomplete delivery back for repair.
+    options:
+      - label: "Acknowledge and return to Dev"
+        value: acknowledge
+        route: "$end"
+
+  - name: dev_handoff_invalid_gate
+    type: human_gate
+    prompt: "DevHandoff failed validation: {{ validate_dev_handoff.output.error }}"
+    options:
+      - label: "Stop and inspect the evidence package"
+        value: inspect
+        route: "$end"
+
+  - name: review_result_invalid_gate
+    type: human_gate
+    prompt: "ReviewResult failed validation: {{ validate_review_result.output.error }}"
+    options:
+      - label: "Stop and inspect the review artifact"
+        value: inspect
+        route: "$end"
+
+  - name: implementation_start_failed_gate
+    type: human_gate
+    prompt: "Could not start implementation: {{ start_implementation.output.error }}"
+    options:
+      - label: "Stop and inspect ticket state"
+        value: inspect
+        route: "$end"
+
+  - name: ci_failed_gate
+    type: human_gate
+    prompt: "CI tests failed after Accepted review. Inspect before closure."
+    options:
+      - label: "Stop and investigate"
+        value: investigate
+        route: "$end"
+
+  - name: terminal_verdict_gate
+    type: human_gate
+    prompt: "Terminal or unsupported review verdict: {{ apply_review_verdict.output.applied_status }}"
+    options:
+      - label: "Acknowledge"
+        value: acknowledge
+        route: "$end"
+
+  - name: unsupported_state_gate
+    type: human_gate
+    prompt: "Ticket cannot enter this demo workflow: {{ select_entry.output.error }}"
+    options:
+      - label: "Stop and inspect the ticket"
+        value: inspect
+        route: "$end"
+
+output:
+  scenario_entry: "{{ select_entry.output.phase }}"

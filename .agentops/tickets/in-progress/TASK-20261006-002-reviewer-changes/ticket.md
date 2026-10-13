@@ -23,7 +23,7 @@ Reviewer a concrete, evidence-based reason to request changes.
 ### Product/source scope
 
 - `demo-app/greeting.py`
-- `.agentops/tickets/ready-for-dev/TASK-20261006-002-reviewer-changes/`
+- `.agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes/`
 
 ### Not Included
 

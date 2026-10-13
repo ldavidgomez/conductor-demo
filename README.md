@@ -1,58 +1,64 @@
 # AgentOps Conductor demo
 
-This repository contains three short, reproducible demonstrations of a controlled Dev → Reviewer workflow.
+This repository demonstrates one controlled Dev → Reviewer workflow through
+three ticket states. The workflow definition is always the same:
+`workflows/demo/agentops-demo.yaml`.
 
-## Scenarios
-
-1. `01-ticket-invalid`: a deterministic precondition check stops an incomplete ticket before an agent is invoked.
-2. `02-changes-requested`: Dev and Reviewer run as separate Copilot agents. A known, injected acceptance-criterion failure produces `ChangesRequested`.
-3. `03-happy-path`: the ticket passes Dev, Reviewer and deterministic checks before a human closes it.
-
-Each scenario begins from the `demo-baseline` tag and uses a real ticket under
-`.agentops/tickets/ready-for-dev/`. Keep the injected fault in scenario 2
-explicit during the presentation: it makes the routing demonstration reliable;
-it is not evidence that a reviewer detects every defect.
-
-## Run scenario 1
-
-```powershell
-conductor validate workflows/demo/01-ticket-invalid.yaml
-conductor run workflows/demo/01-ticket-invalid.yaml
+```mermaid
+flowchart LR
+    A[Ticket] --> B{Lifecycle state}
+    B -->|ReadyForDev| C[Canonical preflight]
+    C -->|invalid| D[TicketInvalid: human refinement]
+    C -->|valid| E[Dev]
+    B -->|DevComplete| F[Existing DevHandoff]
+    E --> G[Validate DevHandoff]
+    F --> G
+    G --> H[Reviewer]
+    H --> I{Verdict}
+    I -->|ChangesRequested| J[Return to Dev]
+    I -->|Accepted| K[CI tests]
+    K --> L[Human closure]
+    L --> M[Done]
 ```
 
-The workflow should route straight to the `TicketInvalid` human gate. No LLM call occurs.
+The scenarios are fixtures, not separate workflows.
 
-## Validate the other scenarios
+| Scenario | Input ticket state | Route demonstrated |
+| --- | --- | --- |
+| Invalid ticket | `ReadyForDev`, missing `authorizationReason` | Preflight → `TicketInvalid`; no LLM is invoked. |
+| Changes requested | `DevComplete` with a seeded, incomplete delivery | DevHandoff → Reviewer → `ChangesRequested`. |
+| Happy path | Valid `ReadyForDev` ticket | Dev → DevHandoff → Reviewer → CI → human closure → `Done`. |
 
-```powershell
-conductor validate workflows/demo/02-changes-requested.yaml
-conductor validate workflows/demo/03-happy-path.yaml
-```
+The second fixture is intentionally resumed at `DevComplete`: it demonstrates
+that the same state machine can continue a real delivery after Dev has produced
+evidence. Its faulty greeting implementation is explicit and exists only to
+make the Reviewer route reproducible.
 
-The production-like happy path uses the pinned canonical workflow:
-
-```powershell
-conductor validate workflows/canonical/implement-task-v0.yaml
-conductor run workflows/canonical/implement-task-v0.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path"
-```
-
-Run a scenario from a fresh worktree. This keeps agent changes and ticket
-artifacts isolated and makes a replay safe:
+## Validate once
 
 ```powershell
-git worktree add ..\demo-changes-requested demo-baseline
-cd ..\demo-changes-requested
-conductor run workflows/demo/02-changes-requested.yaml
+conductor validate workflows/demo/agentops-demo.yaml
 ```
 
-For scenario 2, Dev receives an explicit instruction to leave the empty-name
-case unhandled. Reviewer must identify that deliberate defect and route the
-ticket to `ChangesRequested`. Scenario 3 asks Dev to implement every acceptance
-criterion and runs the Python test suite after Reviewer accepts. The tickets are
-seeded in `ReadyForDev` solely to keep each live demo short and reproducible.
+## Run each scenario
 
-## Next preparation steps
+```powershell
+# 1. Invalid ticket: finishes before any LLM invocation.
+conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-001-ticket-invalid" --web
 
-- Verify Copilot models with `conductor doctor --models --provider copilot`.
-- Choose the Dev and Reviewer model names and place them in the workflow YAML files.
-- Rehearse each scenario from its own disposable worktree.
+# 2. Existing Dev delivery: Reviewer requests changes.
+conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes" --web
+
+# 3. Full canonical-style route: approximately six minutes with live agents.
+conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/tickets/ready-for-dev/TASK-20261006-003-happy-path" --web
+```
+
+## Reset after a run
+
+```powershell
+.\scripts\reset-demo.ps1
+```
+
+The reset returns the repository to the `demo-ready` tag and removes known
+runtime artifacts. Run it before replaying a scenario or use a disposable Git
+worktree.
