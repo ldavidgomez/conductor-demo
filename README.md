@@ -1,4 +1,4 @@
-# AgentOps Conductor demo
+# AgentOps Conductor Demo
 
 This repository demonstrates one controlled Dev → Reviewer workflow through
 three ticket states. The workflow definition is always the same:
