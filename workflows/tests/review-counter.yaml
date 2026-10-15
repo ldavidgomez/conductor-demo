@@ -1,0 +1,66 @@
+# Regression check for the review counter pattern: a `set` step that reads
+# its own previous output each time the loop comes back to it.
+#
+# No agents and no tokens: the Dev and the Reviewer are simulated with scripts,
+# and the Reviewer always asks for changes.
+#
+# Expected result: the run ends at `passed` with exit code 0 after exactly
+# three reviews. If a Conductor version stops keeping the previous value of a
+# `set` step across loop iterations, the counter never reaches 3, the loop runs
+# until max_iterations and the run fails.
+#
+# Usage:
+#   conductor run workflows/tests/review-counter.yaml --skip-gates
+
+workflow:
+  name: review-counter-regression
+  description: Checks that a self-reading set step counts loop iterations
+  entry_point: dev
+
+  context:
+    mode: explicit
+
+  limits:
+    max_iterations: 20
+
+agents:
+  - name: dev
+    type: script
+    command: python
+    args: ["-c", "print('{}')"]
+    routes:
+      - to: reviewer
+
+  - name: reviewer
+    type: script
+    command: python
+    args: ["-c", "print('{\"verdict\": \"changes\"}')"]
+    routes:
+      - to: review_count
+
+  - name: review_count
+    type: set
+    input:
+      - review_count.output?
+    value: "{{ (review_count.output if review_count is defined and review_count.output is not none else 0) + 1 }}"
+    output_type: integer
+    routes:
+      - to: passed
+        when: "{{ review_count.output == 3 }}"
+      - to: overcounted
+        when: "{{ review_count.output > 3 }}"
+      - to: dev
+
+  - name: passed
+    type: terminate
+    status: success
+    input:
+      - review_count.output
+    reason: "Counter reached {{ review_count.output }} after three reviews"
+
+  - name: overcounted
+    type: terminate
+    status: failed
+    input:
+      - review_count.output
+    reason: "Counter skipped past 3 (got {{ review_count.output }})"
