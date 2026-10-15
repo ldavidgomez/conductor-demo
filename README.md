@@ -62,3 +62,18 @@ conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/ti
 The reset returns the repository to the `demo-ready` tag and removes known
 runtime artifacts. Run it before replaying a scenario or use a disposable Git
 worktree.
+
+## Regression check: review counter
+
+`workflows/tests/review-counter.yaml` checks a pattern that bounded review
+loops rely on: a `set` step that reads its own previous output to count how
+many times the loop has passed through it. It uses no agents and no tokens.
+
+```powershell
+conductor run workflows/tests/review-counter.yaml --skip-gates
+```
+
+It should end at `passed` with exit code 0 after exactly three reviews. If a
+Conductor version stops keeping the previous value of a `set` step across loop
+iterations, the counter never reaches 3 and the run fails with
+`MaxIterationsError`. Run it after upgrading Conductor.
