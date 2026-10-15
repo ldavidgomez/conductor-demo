@@ -116,7 +116,7 @@ agents:
         type: boolean
     routes:
       # Incomplete evidence never reaches the reviewer. A change that does not
-      # fit in one review means the ticket was too broad: back to refinement.
+      # fit in one review means the ticket was too broad. The run ends here.
       - to: change_too_large
         when: "{{ collect_diff.output.truncated }}"
       - to: reviewer
