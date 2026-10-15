@@ -59,9 +59,10 @@ conductor run workflows/demo/agentops-demo.yaml --input ticket_dir=".agentops/ti
 .\scripts\reset-demo.ps1
 ```
 
-The reset returns the repository to the `demo-ready` tag and removes known
-runtime artifacts. Run it before replaying a scenario or use a disposable Git
-worktree.
+The reset restores the demo data (`.agentops/` and `demo-app/`) from `main`
+and removes known runtime artifacts. It does not move the branch, so
+workflows, scripts, tests and docs keep their latest version. Run it before
+replaying a scenario or use a disposable Git worktree.
 
 ## Regression check: review counter
 

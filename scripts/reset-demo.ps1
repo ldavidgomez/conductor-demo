@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Baseline = "demo-ready"
+    [string]$Baseline = "main"
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,8 +8,15 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 git -C $repoRoot rev-parse --verify "$Baseline^{commit}" | Out-Null
 
-Write-Host "Restoring demo baseline: $Baseline"
-git -C $repoRoot reset --hard $Baseline
+# Restore only the demo data that workflow runs modify. The branch is not
+# moved, so workflows, scripts, tests and docs keep their latest version.
+$demoPaths = @(".agentops", "demo-app")
+
+Write-Host "Restoring demo data from: $Baseline"
+git -C $repoRoot restore --source=$Baseline --staged --worktree -- @demoPaths
+if ($LASTEXITCODE -ne 0) {
+    throw "git restore failed with exit code $LASTEXITCODE"
+}
 
 # Workflow runs can create artifacts that Git does not track. Clean only the
 # known runtime locations, never arbitrary files in the repository.
