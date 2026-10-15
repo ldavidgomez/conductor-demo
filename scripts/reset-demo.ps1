@@ -31,6 +31,7 @@ $runtimePaths = @(
     ".agentops/tickets/in-progress/TASK-20261006-002-reviewer-changes/review-result.md",
     ".agentops/demo-runtime",
     "demo-app/tests",
+    "demo-app/__init__.py",
     "demo-app/__pycache__"
 )
 
