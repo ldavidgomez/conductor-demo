@@ -53,7 +53,7 @@ changedFiles:
 validation:
   - type: test
     executed: true
-    command: <the test command you ran>
+    command: "<the test command you ran>"
     result: passed   # passed | failed | skipped
     outputRef: null
     reason: null     # explain here when result is failed or skipped
@@ -62,6 +62,9 @@ deviationsFromTask: []
 readyForReview: true   # true only if the tests passed and nothing is pending
 ---
 ```
+
+The frontmatter must be valid YAML, because a script parses it before the
+workflow continues. Wrap every free-text value in double quotes.
 
 Below the frontmatter, add a short summary of what you changed and why.
 

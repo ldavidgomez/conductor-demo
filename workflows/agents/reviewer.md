@@ -49,13 +49,18 @@ taskId: <taskId from ticket.md>
 workflowBranchId: <workflowBranchId from dev-handoff.md>
 verdict: Accepted   # Accepted | ChangesRequested | Rejected | TicketInvalid
 reviewScope:
-  - <each acceptance criterion and the evidence you checked for it>
+  - "<acceptance criterion>: <the evidence you checked for it>"
 findings:
   - severity: should_fix
     category: test_gap
-    description: <what is wrong and where>
+    description: "<what is wrong and where>"
 ---
 ```
+
+The frontmatter must be valid YAML, because a script parses it before the
+workflow continues. Wrap every free-text value in double quotes: criteria,
+evidence and descriptions often contain colons or quotes that break YAML
+otherwise.
 
 Use `findings: []` when there are none. Do not add a `checked` field: list what
 you reviewed under `reviewScope`.
