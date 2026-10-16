@@ -119,7 +119,7 @@ agents:
     description: "Dev implements the task and produces DevHandoff"
     input:
       - start_implementation.output
-    system_prompt: !file C:/Users/david.gomez/.agentops/agents/dev.md
+    system_prompt: !file ../agents/dev.md
     prompt: |
       You are executing Dev workflow step: implement task and produce DevHandoff.
 
@@ -131,8 +131,7 @@ agents:
       WorkflowBranch ID: {{ start_implementation.output.workflow_branch_id }}
 
       Path safety: write dev-handoff.md and ticket.md status updates only under
-      the ticket directory above. Do not write to `~/.agentops/` or outside the
-      repository root.
+      the ticket directory above. Do not write outside the repository root.
 
       You MUST:
       1. Read ticket.md and implementation-prompt.md in the ticket directory.
@@ -272,7 +271,7 @@ agents:
       - start_implementation.output
       - dev_implement.output
       - validate_dev_handoff.output
-    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
+    system_prompt: !file ../agents/reviewer.md
     prompt: |
       You are executing Reviewer workflow step: review implementation and produce ReviewResult.
 
@@ -283,16 +282,14 @@ agents:
       DevHandoff: {{ dev_implement.output.handoff_path }}
 
       Path safety: write review-result.md and ticket.md status updates only under
-      the ticket directory above. Do not write to `~/.agentops/` or outside the
-      repository root.
+      the ticket directory above. Do not write outside the repository root.
 
       You MUST:
-      1. Clear context before review per agent-system/context-lifecycle.md.
+      1. Start the review from the files below, not from earlier context.
       2. Read exactly these task-local files:
          - {{ start_implementation.output.new_ticket_dir }}/ticket.md
          - {{ start_implementation.output.new_ticket_dir }}/review-prompt.md
          - {{ start_implementation.output.new_ticket_dir }}/dev-handoff.md
-         Do NOT read templates/prompts/review-prompt.md.
          WorkflowBranch ID is workflow metadata only — do NOT use it as a git
          branch or git revision. Do NOT run `git diff <workflowBranchId>`.
          Use current working tree diff / git status and DevHandoff evidence.
@@ -320,7 +317,7 @@ agents:
       - dev_implement.output
       - validate_dev_handoff.output
       - revalidate_dev_handoff.output
-    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
+    system_prompt: !file ../agents/reviewer.md
     prompt: |
       You are executing Reviewer workflow step: review implementation and produce ReviewResult.
 
@@ -338,16 +335,14 @@ agents:
       If revalidate_dev_handoff.output.valid is true, do not treat the stale validate_dev_handoff failure as an active blocker.
 
       Path safety: write review-result.md and ticket.md status updates only under
-      the ticket directory above. Do not write to `~/.agentops/` or outside the
-      repository root.
+      the ticket directory above. Do not write outside the repository root.
 
       You MUST:
-      1. Clear context before review per agent-system/context-lifecycle.md.
+      1. Start the review from the files below, not from earlier context.
       2. Read exactly these task-local files:
          - {{ start_implementation.output.new_ticket_dir }}/ticket.md
          - {{ start_implementation.output.new_ticket_dir }}/review-prompt.md
          - {{ start_implementation.output.new_ticket_dir }}/dev-handoff.md
-         Do NOT read templates/prompts/review-prompt.md.
          WorkflowBranch ID is workflow metadata only — do NOT use it as a git
          branch or git revision. Do NOT run `git diff <workflowBranchId>`.
          Use current working tree diff / git status and DevHandoff evidence.

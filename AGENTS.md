@@ -1,113 +1,37 @@
-<!-- managed-by: agentops -->
-<!-- agentops-artifact: provider-entrypoint -->
-<!-- agentops-provider: codex -->
-<!-- agentops-version: 0.1.0 -->
-# AgentOps Project
+# Conductor demo
 
-This repository uses AgentOps Core.
+This repository demonstrates a controlled Dev → Reviewer workflow with
+[Conductor](https://github.com/microsoft/conductor). Everything an agent needs
+is versioned here: nothing is loaded from outside the repository.
 
-## Canonical AgentOps Core
+## Agent roles
 
-Canonical AgentOps behavior is located at:
+The workflows load each agent's instructions from this repository:
 
-- ~/.agentops/agents/
-- ~/.agentops/rules/
-- ~/.agentops/workflows/
-- ~/.agentops/templates/
+- `workflows/agents/dev.md`: implements one ticket and writes `dev-handoff.md`.
+- `workflows/agents/reviewer.md`: reviews the change independently and writes
+  `review-result.md`.
 
-These files are the canonical behavioral source of truth.
+## Project context
 
-Do not modify AgentOps Core files from this repository.
+Project context and tickets live in `.agentops/`:
 
----
+- `.agentops/project-overview.md`
+- `.agentops/decisions/DECISIONS.md`
+- `.agentops/tickets/`: one directory per ticket, with `ticket.md` as its
+  contract.
 
-## Project Operational Context
-
-Project-specific operational context is located at:
-
-- .agentops/
-
-This includes:
-- architecture
-- contracts
-- decisions
-- domain knowledge
-- tickets
-- tech debt
-
-Always prefer .agentops/ as the project source of truth.
-
----
-
-## Project Guidance
-
-Before acting, read the project guidance and canonical context:
-
-- .agentops/agent-guidance.md, if present
-- .agentops/project-overview.md
-- .agentops/decisions/DECISIONS.md
-
-Do not treat provider-local memory as canonical. Durable project knowledge must be promoted into versioned repository files.
-
----
-
-## Available AgentOps Modes
-
-Available canonical operational modes:
-
-- discuss
-- grill-me
-- pm
-- dev
-- reviewer
-
-When the user explicitly invokes one of these modes:
-
-```text
-/pm /dev /reviewer /discuss /grill-me
-```
-
-load the corresponding canonical behavior from:
-
-```text
-~/.agentops/agents/<mode>.md
-```
-
-and apply its rules strictly.
-
----
-
-## Mandatory Operational Rules
+## Rules
 
 Always:
-- preserve strict scope discipline
-- surface ambiguities explicitly
-- avoid silent assumptions
-- prefer minimal safe changes
-- follow canonical working agreement
-- follow canonical testing guidelines
+
+- keep to the scope of the ticket;
+- surface ambiguities instead of guessing;
+- prefer minimal, safe changes;
+- record test results honestly.
 
 Never:
-- redefine canonical agent behavior locally
-- invent requirements
-- silently change architecture
-- modify unrelated code
-- modify AgentOps Core files
 
----
-
-## Ownership Boundary
-
-AgentOps Core:
-- behavioral rules
-- workflows
-- templates
-- governance
-
-Project Repository:
-- business logic
-- implementation
-- project operational context
-- tickets
-- architecture
-- domain knowledge
+- invent requirements;
+- modify code outside the ticket scope;
+- write outside the repository root.

@@ -88,7 +88,7 @@ agents:
   - name: dev_implement
     type: agent
     model: auto
-    system_prompt: !file C:/Users/david.gomez/.agentops/agents/dev.md
+    system_prompt: !file ../agents/dev.md
     prompt: |
       Execute the canonical Dev step only.
 
@@ -162,7 +162,7 @@ agents:
   - name: reviewer_review
     type: agent
     model: auto
-    system_prompt: !file C:/Users/david.gomez/.agentops/agents/reviewer.md
+    system_prompt: !file ../agents/reviewer.md
     prompt: |
       Execute the canonical Reviewer step only.
 
